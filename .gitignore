@@ -22,3 +22,8 @@ _testmain.go
 *.exe
 *.test
 *.prof
+
+pkg/
+bin/mambo
+etc/mambo.cfg
+bin/
