@@ -41,7 +41,6 @@ type command struct {
 func main() {
 	// command line parameter parsing
 	configfile := flag.String("cfg", "mambo.cfg", "Main configuration file")
-	loglevel := flag.Int("log", 3, "Default loglevel")
 	flag.Parse()
 	logger.Notice("Mambo collector started")
 	logger.Notice("Loading configuration from %s", *configfile)

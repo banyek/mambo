@@ -1,0 +1,27 @@
+[config]
+mysql_user = root
+mysql_pass = root123
+#mysql_port = 3307
+#mysql_host = localhost
+statsd_host = 192.168.1.1
+statsd_port = 8125
+
+[command1]
+key = some.key1
+query = "SELECT 1"
+freq = 50
+
+[command2]
+key = some.key2
+query = "SELECT 2"
+freq = 1000
+
+[command3]
+key = some.key3
+query = "SELECT 3"
+freq = 3000
+
+[command4]
+key = some.key4
+query = "SELECT 4"
+freq = 10000

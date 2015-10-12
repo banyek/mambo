@@ -25,7 +25,6 @@ _testmain.go
 
 pkg/
 bin/mambo
-etc/mambo.cfg
 bin/
 src/github.com
 src/gopkg.in/
