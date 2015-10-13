@@ -23,8 +23,3 @@ _testmain.go
 *.test
 *.prof
 
-pkg/
-bin/mambo
-bin/
-src/github.com
-src/gopkg.in/
