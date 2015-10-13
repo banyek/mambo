@@ -8,7 +8,7 @@ Install
 -------
 
 ```sh
-$ go install github.com/banyek/mambo
+$ go get github.com/banyek/mambo
 ```
 
 Example usage
