@@ -43,6 +43,9 @@ func main() {
 	// command line parameter parsing
 	configfile := flag.String("cfg", "mambo.cfg", "Main configuration file")
 	flag.Parse()
+    logger := logging.NewLogger("Mambo")
+    logger.SetLevel(logging.Level(6))
+    fmt.Println("%v",logger)
 	logger.Notice("Mambo collector started")
 	logger.Notice("Loading configuration from %s", *configfile)
 	// The 'results' channel will recive the results of the mysqlWorker queries
@@ -106,7 +109,7 @@ func statsdSender(config *configuration, msg string) {
 	if err != nil {
 		logger.Error(err.Error())
 	}
-	logger.Info("Statsd data flushed: %s", msg)
+//	logger.Info("Statsd data flushed: %s", msg)
 	client.Inc(key, value, 1.0)
 }
 
@@ -137,7 +140,7 @@ func mysqlWorker(config *configuration, cmd command, results chan string) {
 		logger.Error(err.Error())
 	}
 	res := fmt.Sprint(cmd.key, ":", result)
-	logger.Info("Data recieved from MySQL server: %s", res)
+//	logger.Info("Data recieved from MySQL server: %s", res)
 	results <- res
 }
 
@@ -216,3 +219,4 @@ func configure(cfgfile string) (*configuration, []command) {
 	}
 	return &cfg, commands
 }
+
