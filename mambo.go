@@ -17,7 +17,7 @@ import (
 var logger = logging.NewLogger("Mambo")
 
 /*
-Configuration parameters, mysql & statsd
+  Configuration parameters, mysql & statsd
 */
 type configuration struct {
 	mysql_host  string // MySQL host to connect, if empty local socket will be used
@@ -30,13 +30,14 @@ type configuration struct {
 }
 
 /*
- Commands
+  Commands
 */
 type command struct {
 	key   string // key to send statsd server (eg. mysql.slave01.bfc.kinja-ops.com.replication lag)
 	query string // query to run against mysql server. The output must be an integer
 	freq  int    // what frequency the query should be run in milliseconds
 }
+
 
 func main() {
 	// command line parameter parsing
@@ -63,11 +64,10 @@ func main() {
 }
 
 /*
- The controller reads the command frequency (rate) from the command, and sets up
- a ticker with that frequency. We wait for the tick, and when it happens, we call
- a mysqlWorker with the command
+  The controller reads the command frequency (rate) from the command, and sets up
+  a ticker with that frequency. We wait for the tick, and when it happens, we call
+  a mysqlWorker with the command
 */
-
 func controller(cmd command, cnf *configuration, results chan string) {
 	logger.Notice("Query loaded: %s", cmd.query)
 	tick := time.NewTicker(time.Millisecond * time.Duration(cmd.freq)).C // I have to convert freq to time.Duration to use with ticker
@@ -80,12 +80,11 @@ func controller(cmd command, cnf *configuration, results chan string) {
 }
 
 /*
- Builds up the statsd connect uri from
- statsd_host and statsd_port parameters
- For example:
- statsd_host = graphstatsd_port = 8125 -> url:"graph:8125"
+  Builds up the statsd connect uri from
+  statsd_host and statsd_port parameters
+  For example:
+  statsd_host = graphstatsd_port = 8125 -> url:"graph:8125"
 */
-
 func statsdUriBuilder(config *configuration) string {
 	uri := fmt.Sprint(config.statsd_host, ":", config.statsd_port)
 	return uri
@@ -93,9 +92,8 @@ func statsdUriBuilder(config *configuration) string {
 }
 
 /*
- Connects statsd server and sends the metric
+  Connects statsd server and sends the metric
 */
-
 func statsdSender(config *configuration, msg string) {
 	client, err := statsd.NewClient(statsdUriBuilder(config), "")
 	if err != nil {
@@ -112,6 +110,11 @@ func statsdSender(config *configuration, msg string) {
 	client.Inc(key, value, 1.0)
 }
 
+
+/*
+  The mysqlWorker function connects to the database, runs the query which came from the command
+  and puts the result to the results channel
+*/
 func mysqlWorker(config *configuration, cmd command, results chan string) {
 	var result string
 	connecturi := mysqlUriBuilder(config)
@@ -138,6 +141,12 @@ func mysqlWorker(config *configuration, cmd command, results chan string) {
 	results <- res
 }
 
+
+/*
+   Helper function to the mysqlWorker, it builds up the connect uri based on config
+   if no mysql_host is given, it tries to connect via local socket, and ignores the
+   mysql_port option.
+*/
 func mysqlUriBuilder(config *configuration) string {
 	uri := ""
 	if config.mysql_host == "" { // if mysql_host is not defined, we'll connect through local socket
@@ -148,6 +157,12 @@ func mysqlUriBuilder(config *configuration) string {
 	return uri
 }
 
+
+/*
+  Builds up the configuration and command structs from the config file.
+  It searches the [config] section for setting up configurations, and it
+  assumes, that every other section will hold commands.
+*/
 func configure(cfgfile string) (*configuration, []command) {
 	var mysql_portc, statsd_portc int
 	var cfg configuration
