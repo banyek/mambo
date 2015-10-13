@@ -44,8 +44,6 @@ func main() {
 	configfile := flag.String("cfg", "mambo.cfg", "Main configuration file")
 	flag.Parse()
     logger := logging.NewLogger("Mambo")
-    logger.SetLevel(logging.Level(6))
-    fmt.Println("%v",logger)
 	logger.Notice("Mambo collector started")
 	logger.Notice("Loading configuration from %s", *configfile)
 	// The 'results' channel will recive the results of the mysqlWorker queries
