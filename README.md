@@ -11,11 +11,11 @@ Install
 $ go get github.com/banyek/mambo
 ```
 
-Usage
------
+Example usage
+-------------
 
 ```sh
-$ mambo --cfg=/etc/mambo.cfg
+$ bin/mambo --cfg=/EXAMPLES/mambo.cfg
 ```
 
 Example config file
