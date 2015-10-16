@@ -1,17 +1,18 @@
 package main
 
 import (
-	"database/sql"                              // MySQL Query
-	"flag"                                      // Command line parsing
-	"fmt"                                       // Output formatting
+	"database/sql" // MySQL Query
+	"flag"         // Command line parsing
+	"fmt"          // Output formatting
+	"os"           // to exit with exitcode
+	"strconv"      // string conversion
+	"strings"      // string manipulation
+	"time"         // timestamp logging, ticker
+
 	"github.com/cactus/go-statsd-client/statsd" // Statsd client
 	_ "github.com/go-sql-driver/mysql"          // MySQL connection
 	"github.com/koding/logging"                 // logging
 	"gopkg.in/ini.v1"                           // ini file parsing
-	"os"                                        // to exit with exitcode
-	"strconv"                                   // string conversion
-	"strings"                                   // string manipulation
-	"time"                                      // timestamp logging, ticker
 )
 
 var logger = logging.NewLogger("Mambo")
@@ -20,13 +21,13 @@ var logger = logging.NewLogger("Mambo")
   Configuration parameters, mysql & statsd
 */
 type configuration struct {
-	mysql_host  string // MySQL host to connect, if empty local socket will be used
-	mysql_user  string // User to connect MySQL with
-	mysql_pass  string // Password for connecting MySQL
-	mysql_db    string // Database to connect to
-	mysql_port  int    // Port to connect MySQL, if left blank, 3306 will be used as default
-	statsd_host string // statsd server hostname
-	statsd_port int    // statsd server port, if left blank, 8125 will be used as default
+	mysqlHost  string // MySQL host to connect, if empty local socket will be used
+	mysqlUser  string // User to connect MySQL with
+	mysqlPass  string // Password for connecting MySQL
+	mysqlDb    string // Database to connect to
+	mysqlPort  int    // Port to connect MySQL, if left blank, 3306 will be used as default
+	statsdHost string // statsd server hostname
+	statsdPort int    // statsd server port, if left blank, 8125 will be used as default
 }
 
 /*
@@ -38,12 +39,11 @@ type command struct {
 	freq  int    // what frequency the query should be run in milliseconds
 }
 
-
 func main() {
 	// command line parameter parsing
 	configfile := flag.String("cfg", "mambo.cfg", "Main configuration file")
 	flag.Parse()
-    logger := logging.NewLogger("Mambo")
+	logger := logging.NewLogger("Mambo")
 	logger.Notice("Mambo collector started")
 	logger.Notice("Loading configuration from %s", *configfile)
 	// The 'results' channel will recive the results of the mysqlWorker queries
@@ -82,12 +82,12 @@ func controller(cmd command, cnf *configuration, results chan string) {
 
 /*
   Builds up the statsd connect uri from
-  statsd_host and statsd_port parameters
+  statsdHost and statsdPort parameters
   For example:
-  statsd_host = graphstatsd_port = 8125 -> url:"graph:8125"
+  statsdHost = graphstatsdPort = 8125 -> url:"graph:8125"
 */
-func statsdUriBuilder(config *configuration) string {
-	uri := fmt.Sprint(config.statsd_host, ":", config.statsd_port)
+func statsdURIBuilder(config *configuration) string {
+	uri := fmt.Sprint(config.statsdHost, ":", config.statsdPort)
 	return uri
 
 }
@@ -96,7 +96,7 @@ func statsdUriBuilder(config *configuration) string {
   Connects statsd server and sends the metric
 */
 func statsdSender(config *configuration, msg string) {
-	client, err := statsd.NewClient(statsdUriBuilder(config), "")
+	client, err := statsd.NewClient(statsdURIBuilder(config), "")
 	if err != nil {
 		logger.Error(err.Error())
 	}
@@ -107,10 +107,12 @@ func statsdSender(config *configuration, msg string) {
 	if err != nil {
 		logger.Error(err.Error())
 	}
-//	logger.Info("Statsd data flushed: %s", msg)
-	client.Inc(key, value, 1.0)
+	//	logger.Info("Statsd data flushed: %s", msg)
+	err = client.Inc(key, value, 1.0)
+	if err != nil {
+		logger.Error(err.Error())
+	}
 }
-
 
 /*
   The mysqlWorker function connects to the database, runs the query which came from the command
@@ -118,7 +120,7 @@ func statsdSender(config *configuration, msg string) {
 */
 func mysqlWorker(config *configuration, cmd command, results chan string) {
 	var result string
-	connecturi := mysqlUriBuilder(config)
+	connecturi := mysqlURIBuilder(config)
 	db, err := sql.Open("mysql", connecturi)
 	if err != nil {
 		logger.Error(err.Error())
@@ -138,26 +140,24 @@ func mysqlWorker(config *configuration, cmd command, results chan string) {
 		logger.Error(err.Error())
 	}
 	res := fmt.Sprint(cmd.key, ":", result)
-//	logger.Info("Data recieved from MySQL server: %s", res)
+	//	logger.Info("Data recieved from MySQL server: %s", res)
 	results <- res
 }
 
-
 /*
    Helper function to the mysqlWorker, it builds up the connect uri based on config
-   if no mysql_host is given, it tries to connect via local socket, and ignores the
-   mysql_port option.
+   if no mysqlHost is given, it tries to connect via local socket, and ignores the
+   mysqlPort option.
 */
-func mysqlUriBuilder(config *configuration) string {
+func mysqlURIBuilder(config *configuration) string {
 	uri := ""
-	if config.mysql_host == "" { // if mysql_host is not defined, we'll connect through local socket
-		uri = fmt.Sprint(config.mysql_user, ":", config.mysql_pass, "@", "/", config.mysql_db)
+	if config.mysqlHost == "" { // if mysqlHost is not defined, we'll connect through local socket
+		uri = fmt.Sprint(config.mysqlUser, ":", config.mysqlPass, "@", "/", config.mysqlDb)
 	} else { // if we use TCP we'll also need the port of mysql too
-		uri = fmt.Sprint(config.mysql_user, ":", config.mysql_pass, "@", config.mysql_host, ":", config.mysql_port, "/", config.mysql_db)
+		uri = fmt.Sprint(config.mysqlUser, ":", config.mysqlPass, "@", config.mysqlHost, ":", config.mysqlPort, "/", config.mysqlDb)
 	}
 	return uri
 }
-
 
 /*
   Builds up the configuration and command structs from the config file.
@@ -165,9 +165,10 @@ func mysqlUriBuilder(config *configuration) string {
   assumes, that every other section will hold commands.
 */
 func configure(cfgfile string) (*configuration, []command) {
-	var mysql_portc, statsd_portc int
+	var mysqlPortc, statsdPortc int
 	var cfg configuration
-	commands := make([]command, 0)
+	//commands := make([]command, 0)
+	var commands []command
 	config, err := ini.Load(cfgfile)
 	if err != nil {
 		logger.Critical(err.Error())
@@ -177,29 +178,29 @@ func configure(cfgfile string) (*configuration, []command) {
 	for _, section := range sections {
 		if section.Name() != "DEFAULT" { //skip unnamed section
 			if section.Name() == "config" { //[config] holds the configuratuin
-				mysql_hostc := section.Key("mysql_host").String()
-				mysql_userc := section.Key("mysql_user").String()
-				mysql_passc := section.Key("mysql_pass").String()
-				mysql_dbc := section.Key("mysql_db").String()
-				// if mysql_port is not defined, we'll assume that the default 3306 will be used
-				mysql_portc, err = section.Key("mysql_port").Int()
-				if mysql_portc == 0 {
-					mysql_portc = 3306
+				mysqlHostc := section.Key("mysql_host").String()
+				mysqlUserc := section.Key("mysql_user").String()
+				mysqlPassc := section.Key("mysql_pass").String()
+				mysqlDbc := section.Key("mysql_db").String()
+				// if mysqlPort is not defined, we'll assume that the default 3306 will be used
+				mysqlPortc, err = section.Key("mysql_port").Int()
+				if mysqlPortc == 0 {
+					mysqlPortc = 3306
 				}
-				statsd_hostc := section.Key("statsd_host").String()
-				// if statsd_port is not defined, we'll assume that the default 8125 will be used
-				statsd_portc, err = section.Key("statsd_port").Int()
-				if statsd_portc == 0 {
-					statsd_portc = 8125
+				statsdHostc := section.Key("statsd_host").String()
+				// if statsdPort is not defined, we'll assume that the default 8125 will be used
+				statsdPortc, err = section.Key("stats_port").Int()
+				if statsdPortc == 0 {
+					statsdPortc = 8125
 				}
 				cfg = configuration{
-					mysql_host:  mysql_hostc,
-					mysql_user:  mysql_userc,
-					mysql_pass:  mysql_passc,
-					mysql_port:  mysql_portc,
-					mysql_db:    mysql_dbc,
-					statsd_host: statsd_hostc,
-					statsd_port: statsd_portc,
+					mysqlHost:  mysqlHostc,
+					mysqlUser:  mysqlUserc,
+					mysqlPass:  mysqlPassc,
+					mysqlPort:  mysqlPortc,
+					mysqlDb:    mysqlDbc,
+					statsdHost: statsdHostc,
+					statsdPort: statsdPortc,
 				}
 			} else { // here start the command parsing
 				var cmd command
@@ -217,4 +218,3 @@ func configure(cfgfile string) (*configuration, []command) {
 	}
 	return &cfg, commands
 }
-
