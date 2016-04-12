@@ -6,8 +6,6 @@ import (
 	"fmt"          // Output formatting
 
 	_ "github.com/go-sql-driver/mysql" // MySQL connection
-	"github.com/koding/logging"        // logging
-	"gopkg.in/ini.v1"                  // ini file parsing
 	"os"                               // to exit with exitcode
 	"strconv"                          // string conversion
 	"strings"                          // string manipulation
