@@ -4,10 +4,14 @@ import (
 	"database/sql" // MySQL Query
 	"flag"         // Command line parsing
 	"fmt"          // Output formatting
-	"os"           // to exit with exitcode
-	"strconv"      // string conversion
-	"strings"      // string manipulation
-	"time"         // timestamp logging, ticker
+
+	_ "github.com/go-sql-driver/mysql" // MySQL connection
+	"github.com/koding/logging"        // logging
+	"gopkg.in/ini.v1"                  // ini file parsing
+	"os"                               // to exit with exitcode
+	"strconv"                          // string conversion
+	"strings"                          // string manipulation
+	"time"                             // timestamp logging, ticker
 
 	"github.com/cactus/go-statsd-client/statsd" // Statsd client
 	_ "github.com/go-sql-driver/mysql"          // MySQL connection
