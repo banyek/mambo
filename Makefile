@@ -14,3 +14,4 @@ clean:
 	rm -rf src/
 	rm -rf pkg/
 	rm -rf mambo
+	rm -rf mambo.cfg
