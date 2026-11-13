@@ -1,10 +1,10 @@
 # How to build mambo
 
-For building this project you can simply use GNU make.
+Build from the repository root with Go 1.25.5 or later and GNU Make.
 
 ### Build the mambo for the current architecture
 If you want to build mambo for your current architecture, you can do that with a simple make command. 
-This will download all the dependencies, and builds mambo binary
+This downloads any missing dependencies and builds the `mambo` binary.
 
     > make
 
@@ -23,7 +23,8 @@ You can explicit tell if the build target is Linux.
 
     > make linux
     
-### Remove all files  
-If you have changes in the code, before commiting to github you should remove all the files which were created during build.
+### Remove the built binary
+
+Use `make clean` to remove the `mambo` binary.
 
     > make clean

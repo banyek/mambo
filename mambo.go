@@ -1,26 +1,25 @@
 package main
 
 import (
-	"database/sql" // MySQL Query
-	"flag"         // Command line parsing
-	"fmt"          // Output formatting
+	"database/sql"
+	"flag"
+	"fmt"
+	"math"
+	"net"
+	"os"
+	"strconv"
+	"time"
 
-	_ "github.com/go-sql-driver/mysql" // MySQL connection
-	"os"                               // to exit with exitcode
-	"strconv"                          // string conversion
-	"strings"                          // string manipulation
-	"time"                             // timestamp logging, ticker
-
-	"github.com/cactus/go-statsd-client/statsd" // Statsd client
-	_ "github.com/go-sql-driver/mysql"          // MySQL connection
-	"github.com/koding/logging"                 // logging
-	"gopkg.in/ini.v1"                           // ini file parsing
+	"github.com/cactus/go-statsd-client/statsd"
+	"github.com/go-sql-driver/mysql"
+	"github.com/koding/logging"
+	"gopkg.in/ini.v1"
 )
 
 var logger = logging.NewLogger("Mambo")
 
 /*
-  Configuration parameters, mysql & statsd
+Configuration parameters, mysql & statsd
 */
 type configuration struct {
 	mysqlHost  string // MySQL host to connect, if empty local socket will be used
@@ -33,190 +32,153 @@ type configuration struct {
 }
 
 /*
-  Commands
+Commands
 */
 type command struct {
-	key   string // key to send statsd server (eg. mysql.slave01.bfc.kinja-ops.com.replication lag)
-	query string // query to run against mysql server. The output must be an integer
-	freq  int    // what frequency the query should be run in milliseconds
+	key      string // key to send statsd server (eg. mysql.slave01.bfc.kinja-ops.com.replication lag)
+	query    string // query to run against mysql server. The output must be an integer
+	interval time.Duration
+}
+
+type metric struct {
+	key   string
+	value int64
 }
 
 func main() {
-	// command line parameter parsing
 	configfile := flag.String("cfg", "mambo.cfg", "Main configuration file")
 	flag.Parse()
-	logger := logging.NewLogger("Mambo")
 	logger.Notice("Mambo collector started")
 	logger.Notice("Loading configuration from %s", *configfile)
-	// The 'results' channel will recive the results of the mysqlWorker queries
-	results := make(chan string)
-	config, commands := configure(*configfile) // Loading configuration and commands from ini file
-	for _, command := range commands {
-		go controller(command, config, results) // every command will launch a command controller
-	}
-	logger.Notice("Data collector running")
-	for {
-		select {
-		// every time a MySQL worker yield data to the 'results' channel we call a statsdSender and we send that data to statsdserver
-		case msg := <-results:
-			{
-				statsdSender(config, msg)
-			}
-		}
-	}
-}
-
-/*
-  The controller reads the command frequency (rate) from the command, and sets up
-  a ticker with that frequency. We wait for the tick, and when it happens, we call
-  a mysqlWorker with the command
-*/
-func controller(cmd command, cnf *configuration, results chan string) {
-	logger.Notice("Query loaded: %s", cmd.query)
-	tick := time.NewTicker(time.Millisecond * time.Duration(cmd.freq)).C // I have to convert freq to time.Duration to use with ticker
-	for {
-		select {
-		case <-tick:
-			mysqlWorker(cnf, cmd, results)
-		}
-	}
-}
-
-/*
-  Builds up the statsd connect uri from
-  statsdHost and statsdPort parameters
-  For example:
-  statsdHost = graphstatsdPort = 8125 -> url:"graph:8125"
-*/
-func statsdURIBuilder(config *configuration) string {
-	uri := fmt.Sprint(config.statsdHost, ":", config.statsdPort)
-	return uri
-
-}
-
-/*
-  Connects statsd server and sends the metric
-*/
-func statsdSender(config *configuration, msg string) {
-	client, err := statsd.NewClient(statsdURIBuilder(config), "")
+	config, commands, err := configure(*configfile)
 	if err != nil {
-		logger.Error(err.Error())
-	}
-	defer client.Close()
-	arr := strings.Split(msg, ":")
-	key := arr[0]
-	value, err := strconv.ParseInt(arr[1], 10, 64)
-	if err != nil {
-		logger.Error(err.Error())
-	}
-	//	logger.Info("Statsd data flushed: %s", msg)
-	err = client.Inc(key, value, 1.0)
-	if err != nil {
-		logger.Error(err.Error())
-	}
-}
-
-/*
-  The mysqlWorker function connects to the database, runs the query which came from the command
-  and puts the result to the results channel
-*/
-func mysqlWorker(config *configuration, cmd command, results chan string) {
-	var result string
-	connecturi := mysqlURIBuilder(config)
-	db, err := sql.Open("mysql", connecturi)
-	if err != nil {
-		logger.Error(err.Error())
-	}
-	defer db.Close()
-	err = db.Ping()
-	if err != nil {
-		logger.Error(err.Error())
-	}
-	stmtOut, err := db.Prepare(cmd.query)
-	if err != nil {
-		logger.Error(err.Error())
-	}
-	defer stmtOut.Close()
-	err = stmtOut.QueryRow().Scan(&result)
-	if err != nil {
-		logger.Error(err.Error())
-	}
-	res := fmt.Sprint(cmd.key, ":", result)
-	//	logger.Info("Data recieved from MySQL server: %s", res)
-	results <- res
-}
-
-/*
-   Helper function to the mysqlWorker, it builds up the connect uri based on config
-   if no mysqlHost is given, it tries to connect via local socket, and ignores the
-   mysqlPort option.
-*/
-func mysqlURIBuilder(config *configuration) string {
-	uri := ""
-	if config.mysqlHost == "" { // if mysqlHost is not defined, we'll connect through local socket
-		uri = fmt.Sprint(config.mysqlUser, ":", config.mysqlPass, "@", "/", config.mysqlDb)
-	} else { // if we use TCP we'll also need the port of mysql too
-		uri = fmt.Sprint(config.mysqlUser, ":", config.mysqlPass, "@", config.mysqlHost, ":", config.mysqlPort, "/", config.mysqlDb)
-	}
-	return uri
-}
-
-/*
-  Builds up the configuration and command structs from the config file.
-  It searches the [config] section for setting up configurations, and it
-  assumes, that every other section will hold commands.
-*/
-func configure(cfgfile string) (*configuration, []command) {
-	var mysqlPortc, statsdPortc int
-	var cfg configuration
-	//commands := make([]command, 0)
-	var commands []command
-	config, err := ini.Load(cfgfile)
-	if err != nil {
-		logger.Critical(err.Error())
+		logger.Critical("%v", err)
 		os.Exit(1)
 	}
-	sections := config.Sections()
-	for _, section := range sections {
-		if section.Name() != "DEFAULT" { //skip unnamed section
-			if section.Name() == "config" { //[config] holds the configuratuin
-				mysqlHostc := section.Key("mysql_host").String()
-				mysqlUserc := section.Key("mysql_user").String()
-				mysqlPassc := section.Key("mysql_pass").String()
-				mysqlDbc := section.Key("mysql_db").String()
-				// if mysqlPort is not defined, we'll assume that the default 3306 will be used
-				mysqlPortc, err = section.Key("mysql_port").Int()
-				if mysqlPortc == 0 {
-					mysqlPortc = 3306
-				}
-				statsdHostc := section.Key("statsd_host").String()
-				// if statsdPort is not defined, we'll assume that the default 8125 will be used
-				statsdPortc, err = section.Key("stats_port").Int()
-				if statsdPortc == 0 {
-					statsdPortc = 8125
-				}
-				cfg = configuration{
-					mysqlHost:  mysqlHostc,
-					mysqlUser:  mysqlUserc,
-					mysqlPass:  mysqlPassc,
-					mysqlPort:  mysqlPortc,
-					mysqlDb:    mysqlDbc,
-					statsdHost: statsdHostc,
-					statsdPort: statsdPortc,
-				}
-			} else { // here start the command parsing
-				var cmd command
-				keyc := section.Key("key").String()
-				queryc := section.Key("query").String()
-				freqc, _ := section.Key("freq").Int()
-				cmd = command{
-					key:   keyc,
-					query: queryc,
-					freq:  freqc,
-				}
-				commands = append(commands, cmd)
-			}
-		}
+
+	results := make(chan metric)
+	for _, cmd := range commands {
+		go controller(cmd, config, results)
 	}
-	return &cfg, commands
+	logger.Notice("Data collector running")
+	for result := range results {
+		statsdSender(config, result)
+	}
+}
+
+func controller(cmd command, config *configuration, results chan<- metric) {
+	logger.Notice("Query loaded: %s", cmd.query)
+	ticker := time.NewTicker(cmd.interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		result, err := mysqlWorker(config, cmd)
+		if err != nil {
+			logger.Error("Query for metric %q failed: %v", cmd.key, err)
+			continue
+		}
+		results <- result
+	}
+}
+
+func statsdSender(config *configuration, result metric) {
+	address := net.JoinHostPort(config.statsdHost, strconv.Itoa(config.statsdPort))
+	client, err := statsd.NewClient(address, "")
+	if err != nil {
+		logger.Error("Connect to StatsD: %v", err)
+		return
+	}
+	defer client.Close()
+
+	if err := client.Inc(result.key, result.value, 1.0); err != nil {
+		logger.Error("Send metric %q: %v", result.key, err)
+	}
+}
+
+func mysqlWorker(config *configuration, cmd command) (metric, error) {
+	connector, err := mysql.NewConnector(mysqlConfig(config))
+	if err != nil {
+		return metric{}, err
+	}
+	db := sql.OpenDB(connector)
+	defer db.Close()
+
+	var result int64
+	if err := db.QueryRow(cmd.query).Scan(&result); err != nil {
+		return metric{}, err
+	}
+	return metric{key: cmd.key, value: result}, nil
+}
+
+func mysqlConfig(config *configuration) *mysql.Config {
+	cfg := mysql.NewConfig()
+	cfg.User = config.mysqlUser
+	cfg.Passwd = config.mysqlPass
+	cfg.DBName = config.mysqlDb
+	if config.mysqlHost == "" {
+		cfg.Net = "unix"
+	} else {
+		cfg.Net = "tcp"
+		cfg.Addr = net.JoinHostPort(config.mysqlHost, strconv.Itoa(config.mysqlPort))
+	}
+	return cfg
+}
+
+func configure(cfgfile string) (*configuration, []command, error) {
+	file, err := ini.Load(cfgfile)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	settings, err := file.GetSection("config")
+	if err != nil {
+		return nil, nil, fmt.Errorf("missing [config] section in %s", cfgfile)
+	}
+	statsdPortKey := "statsd_port"
+	if !settings.HasKey(statsdPortKey) {
+		statsdPortKey = "stats_port"
+	}
+	cfg := &configuration{
+		mysqlHost:  settings.Key("mysql_host").String(),
+		mysqlUser:  settings.Key("mysql_user").String(),
+		mysqlPass:  settings.Key("mysql_pass").String(),
+		mysqlDb:    settings.Key("mysql_db").String(),
+		statsdHost: settings.Key("statsd_host").String(),
+	}
+	cfg.mysqlPort, err = parsePort(settings.Key("mysql_port"), 3306)
+	if err != nil {
+		return nil, nil, err
+	}
+	cfg.statsdPort, err = parsePort(settings.Key(statsdPortKey), 8125)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var commands []command
+	for _, section := range file.Sections() {
+		name := section.Name()
+		if name == ini.DEFAULT_SECTION || name == "config" {
+			continue
+		}
+		freq, err := section.Key("freq").Int64()
+		if err != nil || freq <= 0 || freq > math.MaxInt64/int64(time.Millisecond) {
+			return nil, nil, fmt.Errorf("[%s] freq must be a positive interval in milliseconds within the supported duration range", name)
+		}
+		commands = append(commands, command{
+			key:      section.Key("key").String(),
+			query:    section.Key("query").String(),
+			interval: time.Duration(freq) * time.Millisecond,
+		})
+	}
+	return cfg, commands, nil
+}
+
+func parsePort(key *ini.Key, defaultPort int) (int, error) {
+	if key.String() == "" || key.String() == "0" {
+		return defaultPort, nil
+	}
+	port, err := key.Int()
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("[config] %s must be a port between 1 and 65535", key.Name())
+	}
+	return port, nil
 }

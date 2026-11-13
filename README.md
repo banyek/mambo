@@ -2,20 +2,20 @@ Mambo
 =====
 
 MySQL - StatsD collector written in golang.
-You can define commands which will be run against yor mysql server and the results of this queries will be sent to your statsd server.
+You can define commands which will be run against your MySQL server and the results of these queries will be sent to your statsd server.
 
 Install
 -------
 
 ```sh
-$ go get github.com/banyek/mambo
+$ make
 ```
 
 Example usage
 -------------
 
 ```sh
-$ bin/mambo --cfg=/EXAMPLES/mambo.cfg
+$ ./mambo --cfg=EXAMPLES/mambo.cfg
 ```
 
 Example config file
